@@ -1,0 +1,1540 @@
+{
+  "info": {
+    "_postman_id": "84cf2f36-b8f5-4f65-bb82-1dd4fb6b0eef",
+    "name": "Clinic Appointment System API",
+    "description": "Postman Collection covering all public API endpoints for Auth, Patients, Doctors, and Manager, including successful workflows, input validation failures, authorization failures, missing resources, and business-rule conflicts.\n\nQuick start:\n1. Start MongoDB and the backend (default http://localhost:5000).\n2. Run the health check.\n3. Register a patient or log in with seeded/demo accounts. The login requests save tokens into collection variables automatically.\n4. Set doctorId, slotId, appointmentId, userId, and managerDoctorId from responses before running dependent requests. doctorId is the Doctor profile _id (not the doctor's User id).\n5. Slot creation requests generate future ISO timestamps automatically. Run as a doctor, then use the returned slot id in patient booking requests.\n\nCollection variables: baseUrl, patientToken, doctorToken, managerToken, doctorId, managerDoctorId, slotId, appointmentId, userId. Use separate collection copies/environments for different databases. Error-request descriptions specify the necessary setup and expected status.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "noauth"
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "const start = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000);",
+          "start.setSeconds(0, 0);",
+          "const end = new Date(start.getTime() + 30 * 60 * 1000);",
+          "pm.collectionVariables.set('slotStart', start.toISOString());",
+          "pm.collectionVariables.set('slotEnd', end.toISOString());",
+          "const overlapStart = new Date(start.getTime() + 5 * 60 * 1000);",
+          "const overlapEnd = new Date(end.getTime() + 25 * 60 * 1000);",
+          "pm.collectionVariables.set('overlapStart', overlapStart.toISOString());",
+          "pm.collectionVariables.set('overlapEnd', overlapEnd.toISOString());",
+          "const localDate = [start.getFullYear(), String(start.getMonth() + 1).padStart(2, '0'), String(start.getDate()).padStart(2, '0')].join('-');",
+          "pm.collectionVariables.set('slotDate', localDate);"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/health",
+            "description": "Expected: 200 and success=true. Confirms the API process is listening; does not verify database readiness."
+          }
+        },
+        {
+          "name": "Unknown route (404)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/not-a-real-endpoint",
+            "description": "Expected: 404 JSON Route not found."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Register patient (success; saves patientToken)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.data && json.data.token) pm.collectionVariables.set('patientToken', json.data.token);",
+                  "  if (json.data && json.data.user && json.data.user.id) pm.collectionVariables.set('patientId', json.data.user.id);",
+                  "}",
+                  "pm.test('Registration responds 201', () => pm.response.to.have.status(201));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Postman Patient\",\n  \"email\": \"postman.patient.{{$timestamp}}@example.com\",\n  \"phone\": \"0501234567\",\n  \"password\": \"Patient@123\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/auth/register",
+            "description": "Expected: 201. Creates a patient only; email is timestamped to make repeated runs unique. Saves patientToken."
+          }
+        },
+        {
+          "name": "Register validation failure (400)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"A\",\n  \"email\": \"not-an-email\",\n  \"phone\": \"123\",\n  \"password\": \"123\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/auth/register",
+            "description": "Expected: 400 Validation failed; invalid email, too-short name/password, and phone outside 10-15 digits."
+          }
+        },
+        {
+          "name": "Register duplicate email (409)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Duplicate Patient\",\n  \"email\": \"{{existingEmail}}\",\n  \"phone\": \"0501234568\",\n  \"password\": \"Patient@123\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/auth/register",
+            "description": "Expected: 409. Set existingEmail to an email already registered in this database."
+          }
+        },
+        {
+          "name": "Login patient (saves patientToken)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.data && json.data.token) pm.collectionVariables.set('patientToken', json.data.token);",
+                  "}",
+                  "pm.test('Login responds 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{patientEmail}}\",\n  \"password\": \"{{patientPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/auth/login",
+            "description": "Expected: 200. Set patientEmail and patientPassword to valid patient credentials; saves patientToken."
+          }
+        },
+        {
+          "name": "Login doctor (saves doctorToken)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.data && json.data.token) pm.collectionVariables.set('doctorToken', json.data.token);",
+                  "}",
+                  "pm.test('Login responds 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{doctorEmail}}\",\n  \"password\": \"{{doctorPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/auth/login",
+            "description": "Expected: 200. Set doctorEmail and doctorPassword to a doctor account; saves doctorToken."
+          }
+        },
+        {
+          "name": "Login manager (saves managerToken)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.data && json.data.token) pm.collectionVariables.set('managerToken', json.data.token);",
+                  "  if (json.data && json.data.user && json.data.user.id) pm.collectionVariables.set('managerUserId', json.data.user.id);",
+                  "}",
+                  "pm.test('Login responds 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{managerEmail}}\",\n  \"password\": \"{{managerPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/auth/login",
+            "description": "Expected: 200. Set managerEmail and managerPassword to manager credentials; saves managerToken and managerUserId."
+          }
+        },
+        {
+          "name": "Login validation failure (400)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"bad-email\",\n  \"password\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/auth/login",
+            "description": "Expected: 400 Validation failed."
+          }
+        },
+        {
+          "name": "Login wrong credentials (401)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"nobody.{{$timestamp}}@example.com\",\n  \"password\": \"wrong-password\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/auth/login",
+            "description": "Expected: 401 Invalid email or password."
+          }
+        },
+        {
+          "name": "Login blocked account (403)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{blockedEmail}}\",\n  \"password\": \"{{blockedPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/auth/login",
+            "description": "Expected: 403. Set blockedEmail/blockedPassword to valid credentials for a user blocked by a manager."
+          }
+        },
+        {
+          "name": "Get current user profile",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{patientToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/auth/me",
+            "description": "Expected: 200 for any valid role token. Uses patientToken by default; change the bearer variable to test other roles."
+          }
+        },
+        {
+          "name": "Get current user without token (401)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/auth/me",
+            "description": "Expected: 401 Access denied. No token provided."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Patients",
+      "item": [
+        {
+          "name": "Browse doctors",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{patientToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/patients/doctors?specialty={{specialty}}&page=1&limit=10",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "patients",
+                "doctors"
+              ],
+              "query": [
+                {
+                  "key": "specialty",
+                  "value": "{{specialty}}"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "10"
+                }
+              ]
+            },
+            "description": "Expected: 200. Optional specialty search and pagination; remove query parameters to list all."
+          }
+        },
+        {
+          "name": "Get doctor profile",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{patientToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/patients/doctors/{{doctorId}}",
+            "description": "Expected: 200. doctorId is a Doctor profile MongoDB _id."
+          }
+        },
+        {
+          "name": "Get doctor profile with unknown id (404)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{patientToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/patients/doctors/000000000000000000000000",
+            "description": "Expected: 404 Doctor not found."
+          }
+        },
+        {
+          "name": "Get doctor profile with malformed id (400)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{patientToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/patients/doctors/not-an-object-id",
+            "description": "Expected: 400 Mongoose CastError response."
+          }
+        },
+        {
+          "name": "Get available doctor slots",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{patientToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/patients/doctors/{{doctorId}}/slots?date={{slotDate}}",
+            "description": "Expected: 200. Optional date uses YYYY-MM-DD. Omitting date lists all future available slots."
+          }
+        },
+        {
+          "name": "Get available slots for unknown doctor (404)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{patientToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/patients/doctors/000000000000000000000000/slots",
+            "description": "Expected: 404 Doctor not found."
+          }
+        },
+        {
+          "name": "Book appointment (201)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.data && json.data._id) pm.collectionVariables.set('appointmentId', json.data._id);",
+                  "  if (json.data && json.data.slotId && json.data.slotId._id) pm.collectionVariables.set('slotId', json.data.slotId._id);",
+                  "}",
+                  "pm.test('Booking responds 201', () => pm.response.to.have.status(201));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{patientToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"slotId\": \"{{slotId}}\",\n  \"reason\": \"General health consultation\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/patients/appointments",
+            "description": "Expected: 201. Requires an existing future, unbooked slotId. Saves appointmentId from the response. Business conflicts: 404 missing slot, 409 booked slot/same-doctor upcoming appointment/3-upcoming limit, 400 past slot."
+          }
+        },
+        {
+          "name": "Book appointment validation failure (400)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{patientToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"slotId\": \"bad-id\",\n  \"reason\": \"x\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/patients/appointments",
+            "description": "Expected: 400 Validation failed; invalid Mongo id and reason shorter than 3 characters."
+          }
+        },
+        {
+          "name": "List my appointments",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{patientToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/patients/appointments?status={{status}}&page=1&limit=10",
+            "description": "Expected: 200. Optional status: upcoming, done, or cancelled; page and limit control pagination."
+          }
+        },
+        {
+          "name": "Cancel own appointment (success)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{patientToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [],
+            "url": "{{baseUrl}}/api/patients/appointments/{{appointmentId}}/cancel",
+            "description": "Expected: 200 if appointment belongs to this patient, is upcoming, and starts at least 2 hours from now. Error cases: 404 missing appointment, 403 not owned, 400 done/already cancelled/less than 2 hours remaining."
+          }
+        },
+        {
+          "name": "Cancel appointment with unknown id (404)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{patientToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [],
+            "url": "{{baseUrl}}/api/patients/appointments/000000000000000000000000/cancel",
+            "description": "Expected: 404 Appointment not found."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Doctors",
+      "item": [
+        {
+          "name": "Get my doctor profile",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{doctorToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/doctors/profile",
+            "description": "Expected: 200 for an account with a doctor profile; 404 if the profile is missing."
+          }
+        },
+        {
+          "name": "Create future slot (201)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.data && json.data._id) pm.collectionVariables.set('slotId', json.data._id);",
+                  "  if (json.data && json.data.doctorId) pm.collectionVariables.set('doctorId', json.data.doctorId);",
+                  "}",
+                  "pm.test('Slot creation responds 201', () => pm.response.to.have.status(201));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{doctorToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"startTime\": \"{{slotStart}}\",\n  \"endTime\": \"{{slotEnd}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/doctors/slots",
+            "description": "Expected: 201. Future timestamps are generated by the collection pre-request script. Saves the created slotId. Other cases: 404 missing doctor profile, 400 invalid dates/start>=end/past, 409 overlap."
+          }
+        },
+        {
+          "name": "Create slot validation failure (400)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{doctorToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"startTime\": \"not-a-date\",\n  \"endTime\": \"also-not-a-date\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/doctors/slots",
+            "description": "Expected: 400 Validation failed for invalid ISO 8601 timestamps."
+          }
+        },
+        {
+          "name": "Create overlapping slot (409)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{doctorToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"startTime\": \"{{overlapStart}}\",\n  \"endTime\": \"{{overlapEnd}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/doctors/slots",
+            "description": "Expected: 409 only after Create future slot succeeded in this same collection run; this overlapping interval is inside that slot."
+          }
+        },
+        {
+          "name": "List my slots",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{doctorToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/doctors/slots?date={{slotDate}}&booked={{booked}}",
+            "description": "Expected: 200. Optional date=YYYY-MM-DD and booked=true|false; remove either query parameter to omit the filter."
+          }
+        },
+        {
+          "name": "Delete own unbooked slot (success)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{doctorToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [],
+            "url": "{{baseUrl}}/api/doctors/slots/{{slotId}}",
+            "description": "Expected: 200 for this doctor's unbooked slot. Errors: 404 missing slot/profile, 403 slot belongs to another doctor, 400 slot already booked."
+          }
+        },
+        {
+          "name": "Delete slot with unknown id (404)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{doctorToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [],
+            "url": "{{baseUrl}}/api/doctors/slots/000000000000000000000000",
+            "description": "Expected: 404 Time slot not found."
+          }
+        },
+        {
+          "name": "List my appointments",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{doctorToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/doctors/appointments?status={{status}}&date={{slotDate}}&page=1&limit=10",
+            "description": "Expected: 200. Optional status=upcoming|done|cancelled, date=YYYY-MM-DD, and pagination."
+          }
+        },
+        {
+          "name": "Complete appointment (success)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{doctorToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"notes\": \"Consultation completed. Follow-up recommended.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/doctors/appointments/{{appointmentId}}/complete",
+            "description": "Expected: 200 for an upcoming appointment assigned to this doctor. notes is optional, max 1000 characters. Errors: 404 missing appointment/profile, 403 not assigned doctor, 400 done/cancelled or notes too long."
+          }
+        },
+        {
+          "name": "Complete appointment validation failure (400)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.variables.set('longNotes', 'x'.repeat(1001));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{doctorToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"notes\": \"{{longNotes}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/doctors/appointments/{{appointmentId}}/complete",
+            "description": "Expected: 400 Validation failed when the generated notes exceed the 1000-character limit."
+          }
+        },
+        {
+          "name": "Cancel appointment as doctor (success)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{doctorToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [],
+            "url": "{{baseUrl}}/api/doctors/appointments/{{appointmentId}}/cancel",
+            "description": "Expected: 200 for an upcoming appointment assigned to this doctor; no 2-hour restriction. Errors: 404 missing appointment/profile, 403 not assigned, 400 done/already cancelled."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Manager",
+      "item": [
+        {
+          "name": "Add doctor (success)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.data && json.data._id) pm.collectionVariables.set('managerDoctorId', json.data._id);",
+                  "}",
+                  "pm.test('Doctor creation responds 201', () => pm.response.to.have.status(201));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{managerToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Postman Doctor\",\n  \"email\": \"postman.doctor.{{$timestamp}}@example.com\",\n  \"phone\": \"0501234569\",\n  \"password\": \"Doctor@123\",\n  \"specialty\": \"Cardiology\",\n  \"bio\": \"Cardiology specialist\",\n  \"consultationFee\": 250\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/manager/doctors",
+            "description": "Expected: 201. Saves managerDoctorId (Doctor profile _id). This endpoint has no express-validator; missing/invalid schema fields return Mongoose validation errors (400), duplicate email returns 409."
+          }
+        },
+        {
+          "name": "Add doctor duplicate email (409)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{managerToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Duplicate Doctor\",\n  \"email\": \"{{existingEmail}}\",\n  \"phone\": \"0501234570\",\n  \"password\": \"Doctor@123\",\n  \"specialty\": \"Cardiology\",\n  \"consultationFee\": 250\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/manager/doctors",
+            "description": "Expected: 409. Set existingEmail to any email already present in the database."
+          }
+        },
+        {
+          "name": "Update doctor (success)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{managerToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"specialty\": \"Cardiology\",\n  \"bio\": \"Updated profile from Postman\",\n  \"consultationFee\": 300,\n  \"name\": \"Updated Doctor Name\",\n  \"phone\": \"0501234571\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/manager/doctors/{{managerDoctorId}}",
+            "description": "Expected: 200. Uses the Doctor profile id; all body fields are optional. Errors: 404 doctor missing, 400 schema validation/cast errors."
+          }
+        },
+        {
+          "name": "Update unknown doctor (404)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{managerToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"consultationFee\": 300\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/manager/doctors/000000000000000000000000",
+            "description": "Expected: 404 Doctor not found."
+          }
+        },
+        {
+          "name": "List doctors",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{managerToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/manager/doctors?specialty={{specialty}}&page=1&limit=10",
+            "description": "Expected: 200. Optional specialty search and pagination."
+          }
+        },
+        {
+          "name": "List users",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{managerToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/manager/users?role={{role}}&is_blocked={{blocked}}&search={{search}}&page=1&limit=10",
+            "description": "Expected: 200. Optional filters: role=patient|doctor|manager, is_blocked=true|false, search matches name/email, and pagination."
+          }
+        },
+        {
+          "name": "Block user (success)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{managerToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"is_blocked\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/manager/users/{{userId}}/block",
+            "description": "Expected: 200 for a non-manager other than the current manager. Errors: 400 non-boolean is_blocked/self/manager target, 404 unknown user."
+          }
+        },
+        {
+          "name": "Unblock user (success)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{managerToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"is_blocked\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/manager/users/{{userId}}/block",
+            "description": "Expected: 200 for an existing non-manager other than the current manager."
+          }
+        },
+        {
+          "name": "Block user invalid body (400)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{managerToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"is_blocked\": \"yes\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/manager/users/{{userId}}/block",
+            "description": "Expected: 400 because is_blocked must be a JSON boolean, not a string."
+          }
+        },
+        {
+          "name": "Block current manager (400)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{managerToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"is_blocked\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/manager/users/{{managerUserId}}/block",
+            "description": "Expected: 400 You cannot block your own account. Set managerUserId to the authenticated manager's user id."
+          }
+        },
+        {
+          "name": "List all appointments",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{managerToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/manager/appointments?status={{status}}&doctorId={{doctorId}}&patientId={{patientId}}&date={{slotDate}}&page=1&limit=10",
+            "description": "Expected: 200. Optional filters: status, doctorId, patientId, date=YYYY-MM-DD, page, limit."
+          }
+        },
+        {
+          "name": "Cancel any appointment (success)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{managerToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [],
+            "url": "{{baseUrl}}/api/manager/appointments/{{appointmentId}}/cancel",
+            "description": "Expected: 200 for an upcoming appointment. Manager has no time restriction. Errors: 404 missing appointment, 400 done/already cancelled."
+          }
+        },
+        {
+          "name": "Cancel unknown appointment (404)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{managerToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [],
+            "url": "{{baseUrl}}/api/manager/appointments/000000000000000000000000/cancel",
+            "description": "Expected: 404 Appointment not found."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Access Control",
+      "item": [
+        {
+          "name": "Patient endpoint without token (401)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/patients/doctors",
+            "description": "Expected: 401. Patient routes require a bearer token."
+          }
+        },
+        {
+          "name": "Manager endpoint with patient token (403)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{patientToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/manager/users",
+            "description": "Expected: 403. Authenticated patient role is not authorized to access manager endpoints."
+          }
+        },
+        {
+          "name": "Endpoint with invalid bearer token (401)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "not-a-valid-jwt",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/patients/doctors",
+            "description": "Expected: 401 Invalid token."
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5000",
+      "type": "string"
+    },
+    {
+      "key": "patientToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "doctorToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "managerToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "patientEmail",
+      "value": "tariq.patient@clinic.com",
+      "type": "string"
+    },
+    {
+      "key": "patientPassword",
+      "value": "Patient@123",
+      "type": "string"
+    },
+    {
+      "key": "doctorEmail",
+      "value": "ahmed.doctor@clinic.com",
+      "type": "string"
+    },
+    {
+      "key": "doctorPassword",
+      "value": "Doctor@123",
+      "type": "string"
+    },
+    {
+      "key": "managerEmail",
+      "value": "manager@clinic.com",
+      "type": "string"
+    },
+    {
+      "key": "managerPassword",
+      "value": "Manager@123",
+      "type": "string"
+    },
+    {
+      "key": "blockedEmail",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "blockedPassword",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "existingEmail",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "specialty",
+      "value": "Cardiology",
+      "type": "string"
+    },
+    {
+      "key": "role",
+      "value": "patient",
+      "type": "string"
+    },
+    {
+      "key": "blocked",
+      "value": "false",
+      "type": "string"
+    },
+    {
+      "key": "search",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "status",
+      "value": "upcoming",
+      "type": "string"
+    },
+    {
+      "key": "booked",
+      "value": "false",
+      "type": "string"
+    },
+    {
+      "key": "slotDate",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "slotStart",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "slotEnd",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "overlapStart",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "overlapEnd",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "doctorId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "managerDoctorId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "slotId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "appointmentId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "patientId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "userId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "managerUserId",
+      "value": "",
+      "type": "string"
+    }
+  ]
+}
