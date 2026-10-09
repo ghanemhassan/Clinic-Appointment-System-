@@ -1054,7 +1054,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"specialty\": \"Cardiology\",\n  \"bio\": \"Updated profile from Postman\",\n  \"consultationFee\": 300,\n  \"name\": \"Updated Doctor Name\",\n  \"phone\": \"0501234571\"\n}",
+              "raw": "{\n  \"specialty\": \"Cardiology\",\n  \"bio\": \"Updated profile from Postman\",\n  \"consultationFee\": 300\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -1096,6 +1096,74 @@
             },
             "url": "{{baseUrl}}/api/manager/doctors/000000000000000000000000",
             "description": "Expected: 404 Doctor not found."
+          }
+        },
+        {
+          "name": "Delete doctor with no appointments (success)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Doctor deletion responds 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{managerToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [],
+            "url": "{{baseUrl}}/api/manager/doctors/{{managerDoctorId}}",
+            "description": "Expected: 200 only when this doctor has no appointments or booked slots. Removes the doctor profile, its doctor-role user account, and unbooked slots. Appointment records are retained; doctors with appointments/booked slots are rejected with 409."
+          }
+        },
+        {
+          "name": "Delete unknown doctor (404)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{managerToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [],
+            "url": "{{baseUrl}}/api/manager/doctors/000000000000000000000000",
+            "description": "Expected: 404 Doctor not found."
+          }
+        },
+        {
+          "name": "Delete doctor with appointments (409)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{managerToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [],
+            "url": "{{baseUrl}}/api/manager/doctors/{{doctorId}}",
+            "description": "Expected: 409 when doctorId belongs to a doctor with at least one appointment or booked slot. Set doctorId to a known scheduled doctor's profile id."
           }
         },
         {

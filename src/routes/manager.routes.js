@@ -10,6 +10,7 @@ router.use(authenticate, authorize('manager'));
 // Doctor management
 router.post('/doctors', managerController.addDoctor);
 router.put('/doctors/:doctorId', managerController.updateDoctor);
+router.delete('/doctors/:doctorId', managerController.deleteDoctor);
 router.get('/doctors', managerController.getAllDoctors);
 
 // User management

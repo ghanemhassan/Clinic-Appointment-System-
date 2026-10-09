@@ -104,6 +104,52 @@ exports.updateDoctor = async (req, res, next) => {
 };
 
 /**
+ * DELETE /api/manager/doctors/:doctorId
+ * Delete a doctor account only when it has no appointments or booked slots.
+ */
+exports.deleteDoctor = async (req, res, next) => {
+  try {
+    const doctor = await Doctor.findById(req.params.doctorId);
+    if (!doctor) {
+      return res.status(404).json({
+        success: false,
+        message: 'Doctor not found.',
+      });
+    }
+
+    const hasAppointments = await Appointment.exists({ doctorId: doctor._id });
+    if (hasAppointments) {
+      return res.status(409).json({
+        success: false,
+        message: 'Cannot delete a doctor with appointment records.',
+      });
+    }
+
+    const hasBookedSlots = await DoctorSlot.exists({
+      doctorId: doctor._id,
+      isBooked: true,
+    });
+    if (hasBookedSlots) {
+      return res.status(409).json({
+        success: false,
+        message: 'Cannot delete a doctor with booked time slots.',
+      });
+    }
+
+    await DoctorSlot.deleteMany({ doctorId: doctor._id });
+    await Doctor.deleteOne({ _id: doctor._id });
+    await User.deleteOne({ _id: doctor.userId, role: 'doctor' });
+
+    res.status(200).json({
+      success: true,
+      message: 'Doctor account and unbooked time slots deleted successfully.',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
  * GET /api/manager/users
  * View all users with optional filters.
  * Query params: ?role=patient|doctor|manager&is_blocked=true|false&search=name&page=1&limit=10

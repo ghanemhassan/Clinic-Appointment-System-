@@ -297,19 +297,24 @@ async function loadDoctorsManagement(container) {
                 </p>
               </div>
 
-              <div style="border-top: 1px solid var(--color-hairline-silver); padding-top: 12px; display: flex; justify-content: flex-end;">
+              <div style="border-top: 1px solid var(--color-hairline-silver); padding-top: 12px; display: flex; justify-content: flex-end; gap: 8px;">
                 <button
                   type="button"
                   class="btn btn-secondary btn-sm btn-edit-doctor"
                   data-id="${doc._id}"
-                  data-specialty="${doc.specialty}"
-                  data-fee="${doc.consultationFee}"
-                  data-bio="${sanitizeHtml(doc.bio || '')}"
-                  data-name="${sanitizeHtml(name)}"
                   style="display: inline-flex; align-items: center; gap: 6px;"
                 >
                   ${icons.edit({ size: 14 })}
                   <span>${t('edit')}</span>
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-danger btn-sm btn-delete-doctor"
+                  data-id="${doc._id}"
+                  style="display: inline-flex; align-items: center; gap: 6px;"
+                >
+                  ${icons.trash({ size: 14 })}
+                  <span>${t('mgr_delete_doctor_btn')}</span>
                 </button>
               </div>
             </div>
@@ -321,11 +326,46 @@ async function loadDoctorsManagement(container) {
         grid.querySelectorAll('.btn-edit-doctor').forEach((btn) => {
           btn.addEventListener('click', () => {
             const id = btn.getAttribute('data-id');
-            const name = btn.getAttribute('data-name');
-            const specialty = btn.getAttribute('data-specialty');
-            const fee = btn.getAttribute('data-fee');
-            const bio = btn.getAttribute('data-bio');
-            openEditDoctorModal(id, name, specialty, fee, bio, renderDoctors);
+            const doctor = doctorsList.find((item) => item._id === id);
+            if (!doctor) return;
+
+            openEditDoctorModal(
+              id,
+              doctor.userId?.name || '',
+              doctor.specialty,
+              doctor.consultationFee,
+              doctor.bio || '',
+              renderDoctors
+            );
+          });
+        });
+
+        grid.querySelectorAll('.btn-delete-doctor').forEach((btn) => {
+          btn.addEventListener('click', async () => {
+            const doctorId = btn.getAttribute('data-id');
+            const doctor = doctorsList.find((item) => item._id === doctorId);
+            if (!doctor) return;
+
+            const name = doctor.userId?.name || t('doctor_default_name');
+            const confirmed = await modal.confirm({
+              title: t('mgr_delete_doctor_title'),
+              message: t('mgr_delete_doctor_msg', { name: sanitizeHtml(name) }),
+              confirmText: t('mgr_delete_doctor_btn'),
+              cancelText: t('cancel'),
+              confirmClass: 'btn-danger',
+            });
+
+            if (!confirmed) return;
+
+            btn.disabled = true;
+            try {
+              await api.deleteDoctor(doctorId);
+              toast.success(t('mgr_doctor_deleted'));
+              renderDoctors();
+            } catch (err) {
+              toast.error(err.status === 409 ? t('mgr_doctor_delete_blocked') : err.message || t('mgr_doctor_delete_failed'));
+              btn.disabled = false;
+            }
           });
         });
       }
@@ -450,9 +490,21 @@ function openAddDoctorModal(onSuccess) {
 // ─── EDIT DOCTOR MODAL ─────────────────────────────────────────
 function openEditDoctorModal(doctorId, doctorName, currentSpecialty, currentFee, currentBio, onSuccess) {
   const modalHtml = `
-    <h2>${t('mgr_edit_doc_modal_title')} ${doctorName}</h2>
+    <h2>${t('mgr_edit_doc_modal_title')} ${sanitizeHtml(doctorName)}</h2>
 
     <form id="edit-doctor-form">
+      <div class="form-group">
+        <label for="edit-doc-name">${t('mgr_doctor_name_label')}</label>
+        <input
+          type="text"
+          id="edit-doc-name"
+          class="form-input"
+          minlength="2"
+          maxlength="50"
+          required
+        />
+      </div>
+
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px;">
         <div class="form-group">
           <label for="edit-doc-specialty">${t('specialty')}</label>
@@ -471,7 +523,7 @@ function openEditDoctorModal(doctorId, doctorName, currentSpecialty, currentFee,
 
       <div class="form-group">
         <label for="edit-doc-bio">${t('bio')}</label>
-        <textarea id="edit-doc-bio" class="form-input" rows="3">${currentBio}</textarea>
+        <textarea id="edit-doc-bio" class="form-input" rows="3"></textarea>
       </div>
 
       <div class="modal-footer">
@@ -485,6 +537,8 @@ function openEditDoctorModal(doctorId, doctorName, currentSpecialty, currentFee,
   `;
 
   modal.open(modalHtml);
+  document.getElementById('edit-doc-name').value = doctorName;
+  document.getElementById('edit-doc-bio').value = currentBio;
 
   document.getElementById('modal-cancel-btn')?.addEventListener('click', () => modal.close());
 
@@ -492,6 +546,7 @@ function openEditDoctorModal(doctorId, doctorName, currentSpecialty, currentFee,
   form?.addEventListener('submit', async (e) => {
     e.preventDefault();
 
+    const name = document.getElementById('edit-doc-name').value.trim();
     const specialty = document.getElementById('edit-doc-specialty').value;
     const consultationFee = Number(document.getElementById('edit-doc-fee').value);
     const bio = document.getElementById('edit-doc-bio').value.trim();
@@ -501,7 +556,7 @@ function openEditDoctorModal(doctorId, doctorName, currentSpecialty, currentFee,
     submitBtn.textContent = t('loading');
 
     try {
-      await api.updateDoctor(doctorId, { specialty, consultationFee, bio });
+      await api.updateDoctor(doctorId, { name, specialty, consultationFee, bio });
       modal.close();
       toast.success(t('mgr_doc_updated'));
       if (onSuccess) onSuccess();

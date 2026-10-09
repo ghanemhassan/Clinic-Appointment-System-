@@ -365,7 +365,8 @@ Requires the **Manager** role.
 | Method | Endpoint | Description |
 |---|---|---|
 | `POST` | `/api/manager/doctors` | Register a new doctor with a profile |
-| `PUT` | `/api/manager/doctors/:doctorId` | Update a doctor's specialty, fee, or bio |
+| `PUT` | `/api/manager/doctors/:doctorId` | Update a doctor's name, phone, specialty, fee, or bio |
+| `DELETE` | `/api/manager/doctors/:doctorId` | Delete a doctor account only when it has no appointments or booked slots; appointment records are retained |
 | `GET` | `/api/manager/doctors` | List all doctors |
 | `GET` | `/api/manager/users` | List users (optional filters: `?role=`, `?is_blocked=`, `?search=`) |
 | `PATCH` | `/api/manager/users/:userId/block` | Block or unblock a user with `{ is_blocked: true }` or `{ is_blocked: false }` |
@@ -380,7 +381,7 @@ Requires the **Manager** role.
 |---|---|
 | **Patient** | Search doctors by specialty, select future dates, view live availability, provide a visit reason, book instantly, review past notes, and cancel with a remaining-time indicator. |
 | **Doctor** | Daily agenda, patient contact details, consultation completion dialog with diagnostic notes, slot creation with overlap protection, and slot deletion. |
-| **Manager** | Real-time KPI cards, add and edit doctor dialogs, a user directory with instant block and unblock toggles, and clinic-wide appointment oversight. |
+| **Manager** | Real-time KPI cards, add, edit, and guarded delete doctor actions, a user directory with instant block and unblock toggles, and clinic-wide appointment oversight. |
 
 Additional behavior:
 

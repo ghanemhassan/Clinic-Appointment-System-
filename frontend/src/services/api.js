@@ -197,6 +197,12 @@ class ApiService {
     });
   }
 
+  deleteDoctor(doctorId) {
+    return this.request(`/manager/doctors/${doctorId}`, {
+      method: 'DELETE',
+    });
+  }
+
   getManagerDoctors(params = {}) {
     const searchParams = new URLSearchParams();
     if (params.specialty) searchParams.append('specialty', params.specialty);
